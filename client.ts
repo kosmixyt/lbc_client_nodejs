@@ -1,5 +1,7 @@
 import initCycleTLS, { type CycleTLSClient, type CycleTLSRequestOptions } from "cycletls";
 import * as readline from "readline";
+import * as fs from "fs/promises";
+import * as path from "path";
 import {
   type Proxy,
   type City,
@@ -13,7 +15,7 @@ import {
 } from "./models";
 import { connect } from "puppeteer-real-browser";
 import { DatadomeError, NotFoundError, RequestError } from "./exceptions";
-import { buildSearchPayloadWithArgs, buildSearchPayloadWithUrl } from "./utils";
+import { buildSearchPayloadWithArgs } from "./utils";
 import { buildSearchResult, buildUser, buildAd, type SearchResult, type Ad, type User } from "./types";
 
 function randomChoice<T>(arr: T[]): T {
@@ -63,6 +65,25 @@ export interface ClientOptions {
 interface BrowserSession {
   cookieHeader: string;
   userAgent: string;
+}
+
+const COOKIE_PATH = path.join(process.cwd(), "lbc_session.json");
+
+async function saveSession(session: BrowserSession) {
+  try {
+    await fs.writeFile(COOKIE_PATH, JSON.stringify(session), "utf8");
+  } catch (e) {
+    console.error(`[lbc] Failed to save session: ${e}`);
+  }
+}
+
+async function loadSession(): Promise<BrowserSession | null> {
+  try {
+    const data = await fs.readFile(COOKIE_PATH, "utf8");
+    return JSON.parse(data) as BrowserSession;
+  } catch {
+    return null;
+  }
 }
 
 let solveCaptchaPromise: Promise<BrowserSession> | null = null;
@@ -120,9 +141,12 @@ async function solveCaptchaWithBrowser(url: string, proxy?: Proxy): Promise<Brow
 
       await browser.close();
 
-      console.log("[lbc] Browser session captured, resuming with real cookies.\n");
+      const session = { cookieHeader, userAgent };
+      await saveSession(session);
 
-      return { cookieHeader, userAgent };
+      console.log("[lbc] Browser session captured and saved, resuming with real cookies.\n");
+
+      return session;
     } finally {
       solveCaptchaPromise = null;
     }
@@ -153,6 +177,14 @@ export class Client {
   async init(): Promise<this> {
     this.cycleTLS = await initCycleTLS();
 
+    // Try to load existing session
+    const savedSession = await loadSession();
+    if (savedSession) {
+      console.log("[lbc] Loaded saved session from lbc_session.json");
+      this._cookieHeader = savedSession.cookieHeader;
+      this._userAgent = savedSession.userAgent;
+    }
+
     const probeUrl = "https://api.leboncoin.fr/finder/search";
     const probePayload = { filters: {}, limit: 1, disable_total: true, extend: false, listing_source: "direct-search" };
 
@@ -160,7 +192,7 @@ export class Client {
       await this._fetch("POST", probeUrl, probePayload, 0);
     } catch (e) {
       if (e instanceof DatadomeError) {
-        // Launch browser so user can solve the captcha
+        // Session expired or blocked, solve captcha
         const session = await solveCaptchaWithBrowser("https://www.leboncoin.fr/", this._proxy);
         this._cookieHeader = session.cookieHeader;
         this._userAgent = session.userAgent;
@@ -259,32 +291,10 @@ export class Client {
   }
 
   // ── Search ──
-  async search(options: {
-    url?: string;
-    text?: string;
-    category?: Category;
-    sort?: SortValue;
-    locations?: LocationType | LocationType[];
-    limit?: number;
-    limitAlu?: number;
-    page?: number;
-    adType?: AdType;
-    ownerType?: OwnerType;
-    shippable?: boolean;
-    searchInTitleOnly?: boolean;
-    extras?: Record<string, number[] | string[]>;
-  }): Promise<SearchResult> {
-    let payload: Record<string, any>;
 
-    if (options.url) {
-      payload = buildSearchPayloadWithUrl(
-        options.url,
-        options.limit ?? 35,
-        options.limitAlu ?? 3,
-        options.page ?? 1
-      );
-    } else {
-      payload = buildSearchPayloadWithArgs({
+
+  async search(options: SearchOptions ): Promise<SearchResult> {
+    let payload: Record<string, any> = buildSearchPayloadWithArgs({
         text: options.text,
         category: options.category,
         sort: options.sort,
@@ -298,8 +308,6 @@ export class Client {
         searchInTitleOnly: options.searchInTitleOnly,
         extras: options.extras,
       });
-    }
-
     const body = await this._fetch("POST", "https://api.leboncoin.fr/finder/search", payload);
     return buildSearchResult(body);
   }
@@ -343,3 +351,19 @@ export class Client {
     }
   }
 }
+
+  export interface SearchOptions {
+    text?: string;
+    category?: Category;
+    sort?: SortValue;
+    locations?: LocationType | LocationType[];
+    limit?: number;
+    limitAlu?: number;
+    page?: number;
+    adType?: AdType;
+    ownerType?: OwnerType;
+    priceRange?: [number, number];
+    shippable?: boolean;
+    searchInTitleOnly?: boolean;
+    extras?: Record<string, number[] | string[]>;
+  }

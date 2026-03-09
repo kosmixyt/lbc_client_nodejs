@@ -1,54 +1,59 @@
+import { z } from "zod";
+
 // ── Ad Location ──
-export interface AdLocation {
-  country_id: string | null;
-  region_id: string | null;
-  region_name: string | null;
-  department_id: string | null;
-  department_name: string | null;
-  city_label: string | null;
-  city: string | null;
-  zipcode: string | null;
-  lat: number | null;
-  lng: number | null;
-  source: string | null;
-  provider: string | null;
-  is_shape: boolean | null;
-}
+export const AdLocationSchema = z.object({
+  country_id: z.string().nullable(),
+  region_id: z.string().nullable(),
+  region_name: z.string().nullable(),
+  department_id: z.string().nullable(),
+  department_name: z.string().nullable(),
+  city_label: z.string().nullable(),
+  city: z.string().nullable(),
+  zipcode: z.string().nullable(),
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
+  source: z.string().nullable(),
+  provider: z.string().nullable(),
+  is_shape: z.boolean().nullable(),
+});
+export type AdLocation = z.infer<typeof AdLocationSchema>;
 
 // ── Attribute ──
-export interface Attribute {
-  key: string | null;
-  key_label: string | null;
-  value: string | null;
-  value_label: string | null;
-  values: string[] | null;
-  values_label: string[] | null;
-  value_label_reader: string | null;
-  generic: boolean | null;
-}
+export const AttributeSchema = z.object({
+  key: z.string().nullable(),
+  key_label: z.string().nullable(),
+  value: z.string().nullable(),
+  value_label: z.string().nullable(),
+  values: z.array(z.string()).nullable(),
+  values_label: z.array(z.string()).nullable(),
+  value_label_reader: z.string().nullable(),
+  generic: z.boolean().nullable(),
+});
+export type Attribute = z.infer<typeof AttributeSchema>;
 
 // ── Ad ──
-export interface Ad {
-  id: number | null;
-  first_publication_date: string | null;
-  expiration_date: string | null;
-  index_date: string | null;
-  status: string | null;
-  category_id: string | null;
-  category_name: string | null;
-  subject: string | null;
-  body: string | null;
-  brand: string | null;
-  ad_type: string | null;
-  url: string | null;
-  price: number | null;
-  images: string[] | null;
-  attributes: Attribute[];
-  location: AdLocation;
-  has_phone: boolean | null;
-  favorites: number | null;
-  _user_id: string | null;
-}
+export const AdSchema = z.object({
+  id: z.number().nullable(),
+  first_publication_date: z.string().nullable(),
+  expiration_date: z.string().nullable(),
+  index_date: z.string().nullable(),
+  status: z.string().nullable(),
+  category_id: z.string().nullable(),
+  category_name: z.string().nullable(),
+  subject: z.string().nullable(),
+  body: z.string().nullable(),
+  brand: z.string().nullable(),
+  ad_type: z.string().nullable(),
+  url: z.string().nullable(),
+  price: z.number().nullable(),
+  images: z.array(z.string()).nullable(),
+  attributes: z.array(AttributeSchema),
+  location: AdLocationSchema,
+  has_phone: z.boolean().nullable(),
+  favorites: z.number().nullable(),
+  _user_id: z.string().nullable(),
+});
+export type Ad = z.infer<typeof AdSchema>;
 
 export function buildAd(raw: Record<string, any>): Ad {
   const attributes: Attribute[] = (raw.attributes ?? []).map((a: any) => ({
@@ -105,17 +110,18 @@ export function buildAd(raw: Record<string, any>): Ad {
 }
 
 // ── Search Result ──
-export interface SearchResult {
-  total: number | null;
-  total_all: number | null;
-  total_pro: number | null;
-  total_private: number | null;
-  total_active: number | null;
-  total_inactive: number | null;
-  total_shippable: number | null;
-  max_pages: number | null;
-  ads: Ad[];
-}
+export const SearchResultSchema = z.object({
+  total: z.number().nullable(),
+  total_all: z.number().nullable(),
+  total_pro: z.number().nullable(),
+  total_private: z.number().nullable(),
+  total_active: z.number().nullable(),
+  total_inactive: z.number().nullable(),
+  total_shippable: z.number().nullable(),
+  max_pages: z.number().nullable(),
+  ads: z.array(AdSchema),
+});
+export type SearchResult = z.infer<typeof SearchResultSchema>;
 
 export function buildSearchResult(raw: Record<string, any>): SearchResult {
   const ads = (raw.ads ?? []).map((ad: any) => buildAd(ad));
@@ -134,111 +140,120 @@ export function buildSearchResult(raw: Record<string, any>): SearchResult {
 }
 
 // ── User types ──
-export interface Reply {
-  in_minutes: number | null;
-  text: string | null;
-  rate_text: string | null;
-  rate: number | null;
-  reply_time_text: string | null;
-}
+export const ReplySchema = z.object({
+  in_minutes: z.number().nullable(),
+  text: z.string().nullable(),
+  rate_text: z.string().nullable(),
+  rate: z.number().nullable(),
+  reply_time_text: z.string().nullable(),
+});
+export type Reply = z.infer<typeof ReplySchema>;
 
-export interface Presence {
-  status: string | null;
-  presence_text: string | null;
-  last_activity: string | null;
-  enabled: boolean | null;
-}
+export const PresenceSchema = z.object({
+  status: z.string().nullable(),
+  presence_text: z.string().nullable(),
+  last_activity: z.string().nullable(),
+  enabled: z.boolean().nullable(),
+});
+export type Presence = z.infer<typeof PresenceSchema>;
 
-export interface Badge {
-  type: string | null;
-  name: string | null;
-}
+export const BadgeSchema = z.object({
+  type: z.string().nullable(),
+  name: z.string().nullable(),
+});
+export type Badge = z.infer<typeof BadgeSchema>;
 
-export interface Feedback {
-  overall_score: number | null;
-  cleanness: number | null;
-  communication: number | null;
-  conformity: number | null;
-  package_score: number | null;
-  product: number | null;
-  recommendation: number | null;
-  respect: number | null;
-  transaction: number | null;
-  user_attention: number | null;
-  received_count: number | null;
-}
+export const FeedbackSchema = z.object({
+  overall_score: z.number().nullable(),
+  cleanness: z.number().nullable(),
+  communication: z.number().nullable(),
+  conformity: z.number().nullable(),
+  package_score: z.number().nullable(),
+  product: z.number().nullable(),
+  recommendation: z.number().nullable(),
+  respect: z.number().nullable(),
+  transaction: z.number().nullable(),
+  user_attention: z.number().nullable(),
+  received_count: z.number().nullable(),
+});
+export type Feedback = z.infer<typeof FeedbackSchema>;
 
-export interface UserLocation {
-  address: string | null;
-  district: string | null;
-  city: string | null;
-  label: string | null;
-  lat: number | null;
-  lng: number | null;
-  zipcode: string | null;
-  geo_source: string | null;
-  geo_provider: string | null;
-  region: string | null;
-  region_label: string | null;
-  department: string | null;
-  department_label: string | null;
-  country: string | null;
-}
+export const UserLocationSchema = z.object({
+  address: z.string().nullable(),
+  district: z.string().nullable(),
+  city: z.string().nullable(),
+  label: z.string().nullable(),
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
+  zipcode: z.string().nullable(),
+  geo_source: z.string().nullable(),
+  geo_provider: z.string().nullable(),
+  region: z.string().nullable(),
+  region_label: z.string().nullable(),
+  department: z.string().nullable(),
+  department_label: z.string().nullable(),
+  country: z.string().nullable(),
+});
+export type UserLocation = z.infer<typeof UserLocationSchema>;
 
-export interface Review {
-  author_name: string | null;
-  rating_value: number | null;
-  text: string | null;
-  review_time: string | null;
-}
+export const ReviewSchema = z.object({
+  author_name: z.string().nullable(),
+  rating_value: z.number().nullable(),
+  text: z.string().nullable(),
+  review_time: z.string().nullable(),
+});
+export type Review = z.infer<typeof ReviewSchema>;
 
-export interface Rating {
-  rating_value: number | null;
-  user_ratings_total: number | null;
-  source: string | null;
-  source_display: string | null;
-  retrieval_time: string | null;
-  url: string | null;
-  reviews: Review[];
-}
+export const RatingSchema = z.object({
+  rating_value: z.number().nullable(),
+  user_ratings_total: z.number().nullable(),
+  source: z.string().nullable(),
+  source_display: z.string().nullable(),
+  retrieval_time: z.string().nullable(),
+  url: z.string().nullable(),
+  reviews: z.array(ReviewSchema),
+});
+export type Rating = z.infer<typeof RatingSchema>;
 
-export interface Pro {
-  online_store_id: number | null;
-  online_store_name: string | null;
-  activity_sector_id: number | null;
-  activity_sector: string | null;
-  category_id: number | null;
-  siren: string | null;
-  siret: string | null;
-  store_id: number | null;
-  active_since: string | null;
-  location: UserLocation;
-  logo: string | null;
-  cover: string | null;
-  slogan: string | null;
-  description: string | null;
-  opening_hours: string | null;
-  website_url: string | null;
-  rating: Rating;
-}
+export const ProSchema = z.object({
+  online_store_id: z.number().nullable(),
+  online_store_name: z.string().nullable(),
+  activity_sector_id: z.number().nullable(),
+  activity_sector: z.string().nullable(),
+  category_id: z.number().nullable(),
+  siren: z.string().nullable(),
+  siret: z.string().nullable(),
+  store_id: z.number().nullable(),
+  active_since: z.string().nullable(),
+  location: UserLocationSchema,
+  logo: z.string().nullable(),
+  cover: z.string().nullable(),
+  slogan: z.string().nullable(),
+  description: z.string().nullable(),
+  opening_hours: z.string().nullable(),
+  website_url: z.string().nullable(),
+  rating: RatingSchema,
+});
+export type Pro = z.infer<typeof ProSchema>;
 
-export interface User {
-  id: string | null;
-  name: string | null;
-  registered_at: string | null;
-  location: string | null;
-  feedback: Feedback;
-  profile_picture: string | null;
-  reply: Reply;
-  presence: Presence;
-  badges: Badge[];
-  total_ads: number | null;
-  store_id: number | null;
-  account_type: string | null;
-  description: string | null;
-  pro: Pro | null;
-  is_pro: boolean;
-}
+export const UserSchema = z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  registered_at: z.string().nullable(),
+  location: z.string().nullable(),
+  feedback: FeedbackSchema,
+  profile_picture: z.string().nullable(),
+  reply: ReplySchema,
+  presence: PresenceSchema,
+  badges: z.array(BadgeSchema),
+  total_ads: z.number().nullable(),
+  store_id: z.number().nullable(),
+  account_type: z.string().nullable(),
+  description: z.string().nullable(),
+  pro: ProSchema.nullable(),
+  is_pro: z.boolean(),
+});
+export type User = z.infer<typeof UserSchema>;
 
 export function buildUser(userData: Record<string, any>, proData?: Record<string, any> | null): User {
   const rawFeedback = userData.feedback ?? {};

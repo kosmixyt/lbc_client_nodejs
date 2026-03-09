@@ -25,138 +25,7 @@ function buildArea(areaValues: string[]): Record<string, any> {
   return area;
 }
 
-export function buildSearchPayloadWithUrl(
-  url: string,
-  limit = 35,
-  limitAlu = 3,
-  page = 1
-): Record<string, any> {
-  const payload: Record<string, any> = {
-    filters: {},
-    limit,
-    limit_alu: limitAlu,
-    offset: limit * (page - 1),
-    disable_total: true,
-    extend: true,
-    listing_source: page === 1 ? "direct-search" : "pagination",
-  };
 
-  const queryString = url.split("?")[1];
-  if (!queryString) return payload;
-
-  const args = queryString.split("&");
-  for (const arg of args) {
-    const eqIdx = arg.indexOf("=");
-    if (eqIdx === -1) continue;
-
-    const key = arg.substring(0, eqIdx);
-    const value = arg.substring(eqIdx + 1);
-
-    switch (key) {
-      case "text":
-        payload.filters.keywords = { text: decodeURIComponent(value) };
-        break;
-
-      case "category":
-        payload.filters.category = { id: value };
-        break;
-
-      case "locations": {
-        payload.filters.location = { locations: [] };
-        const locations = value.split(",");
-        for (const location of locations) {
-          const locationParts = location.split("__");
-          const prefixParts = locationParts[0]!.split("_");
-
-          if (prefixParts[0]!.length === 1) {
-            const locationId = prefixParts[1]!;
-            switch (prefixParts[0]!) {
-              case "d":
-                payload.filters.location.locations.push({
-                  locationType: "department",
-                  department_id: locationId,
-                });
-                break;
-              case "r":
-                payload.filters.location.locations.push({
-                  locationType: "region",
-                  region_id: locationId,
-                });
-                break;
-              case "p": {
-                const areaValues = locationParts[1]!.split("_");
-                payload.filters.location.locations.push({
-                  locationType: "place",
-                  place: locationId,
-                  label: locationId,
-                  area: buildArea(areaValues),
-                });
-                break;
-              }
-              default:
-                throw new InvalidValue(`Unknown location type: ${prefixParts[0]}`);
-            }
-          } else {
-            // City
-            const areaValues = locationParts[1]!.split("_");
-            payload.filters.location.locations.push({
-              locationType: "city",
-              area: buildArea(areaValues),
-            });
-          }
-        }
-        break;
-      }
-
-      case "order":
-        payload.sort_order = value;
-        break;
-
-      case "sort":
-        payload.sort_by = value;
-        break;
-
-      case "owner_type":
-        payload.owner_type = value;
-        break;
-
-      case "shippable":
-        if (value === "1") {
-          if (!payload.filters.location) payload.filters.location = {};
-          payload.filters.location.shippable = true;
-        }
-        break;
-
-      default: {
-        if (key === "page") continue;
-
-        const dashParts = value.split("-");
-        if (dashParts.length === 2) {
-          // Range
-          let minVal: number | null = parseInt(dashParts[0]!, 10);
-          let maxVal: number | null = parseInt(dashParts[1]!, 10);
-          if (isNaN(minVal)) minVal = null;
-          if (isNaN(maxVal)) maxVal = null;
-
-          if (!payload.filters.ranges) payload.filters.ranges = {};
-          const ranges: Record<string, number> = {};
-          if (minVal !== null) ranges.min = minVal;
-          if (maxVal !== null) ranges.max = maxVal;
-          if (Object.keys(ranges).length > 0) {
-            payload.filters.ranges[key] = ranges;
-          }
-        } else {
-          // Enum
-          if (!payload.filters.enums) payload.filters.enums = {};
-          payload.filters.enums[key] = value.split(",");
-        }
-        break;
-      }
-    }
-  }
-
-  return payload;
-}
 
 export function buildSearchPayloadWithArgs(options: {
   text?: string;
@@ -170,6 +39,7 @@ export function buildSearchPayloadWithArgs(options: {
   ownerType?: OwnerType;
   shippable?: boolean;
   searchInTitleOnly?: boolean;
+  priceRange?: [number, number];
   extras?: Record<string, number[] | string[]>;
 }): Record<string, any> {
   const {
@@ -185,6 +55,7 @@ export function buildSearchPayloadWithArgs(options: {
     shippable,
     searchInTitleOnly = false,
     extras,
+    priceRange
   } = options;
 
   const payload: Record<string, any> = {
@@ -193,6 +64,7 @@ export function buildSearchPayloadWithArgs(options: {
       enums: { ad_type: [adType] },
       keywords: { text: text ?? "" },
       location: {},
+      ranges: {},
     },
     limit,
     limit_alu: limitAlu,
@@ -204,6 +76,12 @@ export function buildSearchPayloadWithArgs(options: {
 
   if (text) {
     payload.filters.keywords = { text };
+  }
+  if (priceRange) {
+    payload.filters.ranges.price = {
+      min: priceRange[0],
+      max: priceRange[1],
+    };
   }
 
   if (ownerType) {
