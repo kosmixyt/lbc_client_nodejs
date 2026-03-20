@@ -59,6 +59,9 @@ export interface ClientOptions {
   proxy?: Proxy;
   timeout?: number;
   maxRetries?: number;
+  maxFailedRetry?: number;
+  BrowserLaunchOptions?: Parameters<typeof connect>[0];
+  browserLaunchOptions?: Parameters<typeof connect>[0];
 }
 
 // Cookies extracted from the browser after captcha solving
@@ -88,7 +91,11 @@ async function loadSession(): Promise<BrowserSession | null> {
 
 let solveCaptchaPromise: Promise<BrowserSession> | null = null;
 
-async function solveCaptchaWithBrowser(url: string, proxy?: Proxy): Promise<BrowserSession> {
+async function solveCaptchaWithBrowser(
+  url: string,
+  proxy?: Proxy,
+  browserLaunchOptions?: Parameters<typeof connect>[0]
+): Promise<BrowserSession> {
   if (solveCaptchaPromise) {
     return solveCaptchaPromise;
   }
@@ -104,6 +111,14 @@ async function solveCaptchaWithBrowser(url: string, proxy?: Proxy): Promise<Brow
           defaultViewport: null,
         }
       };
+
+      if (browserLaunchOptions) {
+        Object.assign(connectOptions, browserLaunchOptions);
+        connectOptions.connectOption = {
+          defaultViewport: null,
+          ...(browserLaunchOptions.connectOption ?? {}),
+        };
+      }
 
       if (proxy) {
         connectOptions.proxy = {
@@ -160,6 +175,8 @@ export class Client {
   private _proxy: Proxy | undefined;
   private _timeout: number;
   private _maxRetries: number;
+  private _maxFailedRetry: number;
+  private _browserLaunchOptions: Parameters<typeof connect>[0] | undefined;
   private _userAgent: string;
   private _ja3: string;
   private _cookieHeader: string = "";
@@ -168,6 +185,8 @@ export class Client {
     this._proxy = options.proxy;
     this._timeout = options.timeout ?? 30;
     this._maxRetries = options.maxRetries ?? 5;
+    this._maxFailedRetry = Math.max(0, options.maxFailedRetry ?? 0);
+    this._browserLaunchOptions = options.browserLaunchOptions ?? options.BrowserLaunchOptions;
     this._userAgent = generateUserAgent();
     // Chrome Android JA3
     this._ja3 =
@@ -193,7 +212,11 @@ export class Client {
     } catch (e) {
       if (e instanceof DatadomeError) {
         // Session expired or blocked, solve captcha
-        const session = await solveCaptchaWithBrowser("https://www.leboncoin.fr/", this._proxy);
+        const session = await solveCaptchaWithBrowser(
+          "https://www.leboncoin.fr/",
+          this._proxy,
+          this._browserLaunchOptions
+        );
         this._cookieHeader = session.cookieHeader;
         this._userAgent = session.userAgent;
       }
@@ -215,13 +238,15 @@ export class Client {
     method: string,
     url: string,
     payload?: Record<string, any>,
-    maxRetries?: number
+    maxRetries?: number,
+    maxFailedRetry?: number
   ): Promise<Record<string, any>> {
     if (!this.cycleTLS) {
       throw new RequestError("Client not initialized. Call client.init() first.");
     }
 
     const retries = maxRetries ?? this._maxRetries;
+    const failedRetries = maxFailedRetry ?? this._maxFailedRetry;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -250,43 +275,64 @@ export class Client {
       requestOptions.body = JSON.stringify(payload);
     }
 
-    type HttpMethod = "head" | "get" | "post" | "put" | "delete" | "trace" | "options" | "connect" | "patch";
-    const response = await this.cycleTLS(url, requestOptions, method.toLowerCase() as HttpMethod);
+    try {
+      type HttpMethod = "head" | "get" | "post" | "put" | "delete" | "trace" | "options" | "connect" | "patch";
+      const response = await this.cycleTLS(url, requestOptions, method.toLowerCase() as HttpMethod);
 
-    if (response.status >= 200 && response.status < 300) {
-      if (typeof response.data === "string") {
-        try {
-          return JSON.parse(response.data);
-        } catch {
-          return {} as Record<string, any>;
+      if (response.status >= 200 && response.status < 300) {
+        if (typeof response.data === "string") {
+          try {
+            return JSON.parse(response.data);
+          } catch {
+            return {} as Record<string, any>;
+          }
         }
-      }
-      return response.data as Record<string, any>;
-    } else if (response.status === 403 || response.status === 495) {
-      if (retries > 0) {
-        // Re-init with new user agent and retry
-        this._userAgent = generateUserAgent();
-        return this._fetch(method, url, payload, retries - 1);
-      }
-      // Retries exhausted — try browser captcha solving if not already done
-      if (!this._cookieHeader) {
-        const session = await solveCaptchaWithBrowser("https://www.leboncoin.fr/", this._proxy);
-        this._cookieHeader = session.cookieHeader;
-        this._userAgent = session.userAgent;
-        return this._fetch(method, url, payload, 0);
-      }
-      if (this._proxy) {
+        return response.data as Record<string, any>;
+      } else if (response.status === 403 || response.status === 495) {
+        if (retries > 0) {
+          // Re-init with new user agent and retry
+          this._userAgent = generateUserAgent();
+          return this._fetch(method, url, payload, retries - 1, failedRetries);
+        }
+        // Retries exhausted — try browser captcha solving if not already done
+        if (!this._cookieHeader) {
+          const session = await solveCaptchaWithBrowser(
+            "https://www.leboncoin.fr/",
+            this._proxy,
+            this._browserLaunchOptions
+          );
+          this._cookieHeader = session.cookieHeader;
+          this._userAgent = session.userAgent;
+          return this._fetch(method, url, payload, 0, failedRetries);
+        }
+        if (this._proxy) {
+          throw new DatadomeError(
+            "Access blocked by Datadome: your proxy appears to have a poor reputation, try to change it."
+          );
+        }
         throw new DatadomeError(
-          "Access blocked by Datadome: your proxy appears to have a poor reputation, try to change it."
+          "Access blocked by Datadome: your activity was flagged as suspicious. Please avoid sending excessive requests."
         );
+      } else if (response.status === 404 || response.status === 410) {
+        throw new NotFoundError("Unable to find ad or user.");
+      } else {
+        throw new RequestError(`Request failed with status code ${response.status}.`);
       }
-      throw new DatadomeError(
-        "Access blocked by Datadome: your activity was flagged as suspicious. Please avoid sending excessive requests."
-      );
-    } else if (response.status === 404 || response.status === 410) {
-      throw new NotFoundError("Unable to find ad or user.");
-    } else {
-      throw new RequestError(`Request failed with status code ${response.status}.`);
+    } catch (e) {
+      if (e instanceof DatadomeError || e instanceof NotFoundError) {
+        throw e;
+      }
+
+      if (failedRetries > 0) {
+        return this._fetch(method, url, payload, retries, failedRetries - 1);
+      }
+
+      if (e instanceof RequestError) {
+        throw e;
+      }
+
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new RequestError(`Request failed: ${reason}`);
     }
   }
 
