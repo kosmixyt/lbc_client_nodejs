@@ -60,6 +60,7 @@ export interface ClientOptions {
   timeout?: number;
   maxRetries?: number;
   maxFailedRetry?: number;
+  onCaptchaPrompt?: () => Promise<void>;
   BrowserLaunchOptions?: Parameters<typeof connect>[0];
   browserLaunchOptions?: Parameters<typeof connect>[0];
 }
@@ -94,7 +95,8 @@ let solveCaptchaPromise: Promise<BrowserSession> | null = null;
 async function solveCaptchaWithBrowser(
   url: string,
   proxy?: Proxy,
-  browserLaunchOptions?: Parameters<typeof connect>[0]
+  browserLaunchOptions?: Parameters<typeof connect>[0],
+  onCaptchaPrompt?: () => Promise<void>
 ): Promise<BrowserSession> {
   if (solveCaptchaPromise) {
     return solveCaptchaPromise;
@@ -139,15 +141,19 @@ async function solveCaptchaWithBrowser(
       await page.goto(url, { waitUntil: "domcontentloaded" });
       console.log("[lbc] Waiting for captcha to be solved...");
 
-      await new Promise<void>(async (resolve) => {
-        console.log("[lbc] Unable to determine captcha element positions, please solve the captcha manually in the browser. Press Enter once done.");
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        rl.question("", () => {
-          rl.close();
-          resolve();
+      if (onCaptchaPrompt) {
+        console.log("[lbc] Waiting for captcha resolution via UI callback...");
+        await onCaptchaPrompt();
+      } else {
+        await new Promise<void>((resolve) => {
+          console.log("[lbc] Unable to determine captcha element positions, please solve the captcha manually in the browser. Press Enter once done.");
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          rl.question("", () => {
+            rl.close();
+            resolve();
+          });
         });
-
-      });
+      }
 
       // Extract cookies and user-agent
       const cookies = await page.cookies();
@@ -176,6 +182,7 @@ export class Client {
   private _timeout: number;
   private _maxRetries: number;
   private _maxFailedRetry: number;
+  private _onCaptchaPrompt: (() => Promise<void>) | undefined;
   private _browserLaunchOptions: Parameters<typeof connect>[0] | undefined;
   private _userAgent: string;
   private _ja3: string;
@@ -186,6 +193,7 @@ export class Client {
     this._timeout = options.timeout ?? 30;
     this._maxRetries = options.maxRetries ?? 5;
     this._maxFailedRetry = Math.max(0, options.maxFailedRetry ?? 0);
+    this._onCaptchaPrompt = options.onCaptchaPrompt;
     this._browserLaunchOptions = options.browserLaunchOptions ?? options.BrowserLaunchOptions;
     this._userAgent = generateUserAgent();
     // Chrome Android JA3
@@ -215,7 +223,8 @@ export class Client {
         const session = await solveCaptchaWithBrowser(
           "https://www.leboncoin.fr/",
           this._proxy,
-          this._browserLaunchOptions
+          this._browserLaunchOptions,
+          this._onCaptchaPrompt
         );
         this._cookieHeader = session.cookieHeader;
         this._userAgent = session.userAgent;
@@ -299,7 +308,8 @@ export class Client {
           const session = await solveCaptchaWithBrowser(
             "https://www.leboncoin.fr/",
             this._proxy,
-            this._browserLaunchOptions
+            this._browserLaunchOptions,
+            this._onCaptchaPrompt
           );
           this._cookieHeader = session.cookieHeader;
           this._userAgent = session.userAgent;
