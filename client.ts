@@ -63,6 +63,8 @@ export interface ClientOptions {
   onCaptchaPrompt?: () => Promise<void>;
   BrowserLaunchOptions?: Parameters<typeof connect>[0];
   browserLaunchOptions?: Parameters<typeof connect>[0];
+  /** Port for the CycleTLS Go binary (default: 49152). Change if port is blocked. */
+  cycleTLSPort?: number;
 }
 
 // Cookies extracted from the browser after captcha solving
@@ -107,7 +109,7 @@ async function solveCaptchaWithBrowser(
       const connectOptions: Parameters<typeof connect>[0] = {
         headless: false,
         turnstile: false,
-        disableXvfb: false,
+        disableXvfb: process.platform !== "linux",
         args: [],
         connectOption: {
           defaultViewport: null,
@@ -187,6 +189,7 @@ export class Client {
   private _userAgent: string;
   private _ja3: string;
   private _cookieHeader: string = "";
+  private _cycleTLSPort: number;
 
   constructor(options: ClientOptions = {}) {
     this._proxy = options.proxy;
@@ -196,14 +199,25 @@ export class Client {
     this._onCaptchaPrompt = options.onCaptchaPrompt;
     this._browserLaunchOptions = options.browserLaunchOptions ?? options.BrowserLaunchOptions;
     this._userAgent = generateUserAgent();
+    this._cycleTLSPort = options.cycleTLSPort ?? 49152;
     // Chrome Android JA3
     this._ja3 =
       "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-51-57-47-53-10,0-23-65281-10-11-35-16-5-51-43-13-45-28-21,29-23-24-25-256-257,0";
   }
 
   async init(): Promise<this> {
-    this.cycleTLS = await initCycleTLS();
+    console.log("[lbc] Initializing client...");
+    try {
+      this.cycleTLS = await initCycleTLS({ port: this._cycleTLSPort, timeout: 15000 });
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new RequestError(
+        `Failed to initialize CycleTLS on port ${this._cycleTLSPort}: ${reason}. ` +
+        `Try changing the port via ClientOptions.cycleTLSPort, or ensure the cycletls binary is allowed through Windows Firewall.`
+      );
+    }
 
+    console.log("[lbc] Testing session validity...");
     // Try to load existing session
     const savedSession = await loadSession();
     if (savedSession) {
